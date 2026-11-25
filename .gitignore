@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build & Release Artifacts
+*.apk
+*.aab
+*.zip
+*.keystore
+*.jks
+builds/
+delivery/
+
+# Android Gradle / Build caches
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/local.properties
+.gradle/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.log

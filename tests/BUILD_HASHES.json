@@ -1,0 +1,27 @@
+{
+  "builds": {
+    "DEBUG_APK": {
+      "filename": "FURIO_FC_2025_LAST_VERSION_DEBUG.apk",
+      "path": "c:\\Users\\CN\\.gemini\\antigravity-ide\\scratch\\head-soccer\\builds\\FURIO_FC_2025_LAST_VERSION_DEBUG.apk",
+      "size": 26594073,
+      "sha256": "cff899def2c73da1be325b5ead3a85d4b1d69069ce201b29d27b01a04e93a970"
+    },
+    "RELEASE_APK": {
+      "filename": "FURIO_FC_2025_LAST_VERSION_RELEASE.apk",
+      "path": "c:\\Users\\CN\\.gemini\\antigravity-ide\\scratch\\head-soccer\\builds\\FURIO_FC_2025_LAST_VERSION_RELEASE.apk",
+      "size": 19475714,
+      "sha256": "9bb348c35392c2d608077cdc1b381f8b0c5117673c35ef0daab42b067c3cc27a"
+    },
+    "RELEASE_AAB": {
+      "filename": "FURIO_FC_2025_LAST_VERSION_RELEASE.aab",
+      "path": "c:\\Users\\CN\\.gemini\\antigravity-ide\\scratch\\head-soccer\\builds\\FURIO_FC_2025_LAST_VERSION_RELEASE.aab",
+      "size": 18895850,
+      "sha256": "ee6dceaf3f8aa0a3ce28d08f51a6d31968e49687c0bd33366fb0a7f3f3cdfaf1"
+    }
+  },
+  "final_zip": {
+    "filename": "FURIO_FC_2025_LAST_VERSION_FINAL.zip",
+    "size_mb": 84.56,
+    "sha256": "a78c3dd9925d464804f1a1660849c25779b390ef0b24876b799297a289c9c201"
+  }
+}

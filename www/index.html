@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>FURIO FC: CAREER WORLD</title>
+
+    <script src="src/phaser.min.js"></script>
+    <script>
+        if (typeof Phaser === 'undefined') {
+            document.write('<div style="color:red; font-size:24px; padding:20px; text-align:center;">HATA: Oyun motoru (Phaser) yüklenemedi.<br>İnternet bağlantınızı kontrol edip sayfayı yenileyin.</div>');
+            throw new Error("Phaser loading failed");
+        }
+    </script>
+
+    <style>
+        :root {
+            --sat: env(safe-area-inset-top, 15px);
+            --sar: env(safe-area-inset-right, 25px);
+            --sab: env(safe-area-inset-bottom, 5px);
+            --sal: env(safe-area-inset-left, 25px);
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #000000;
+            overflow: hidden;
+            position: fixed;
+            top: 0;
+            left: 0;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        #game-container {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            box-sizing: border-box;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #000000;
+        }
+        
+        canvas {
+            display: block;
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        #error-log {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            color: red;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 9999;
+            pointer-events: none;
+            white-space: pre-wrap;
+            font-family: monospace;
+            padding: 10px;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="error-log"></div>
+
+    <div id="game-container"></div>
+
+
+
+
+
+    <!-- Systems -->
+    <script src="src/utils/UIUtils.js?v=119"></script>
+    <script src="src/systems/GameStateManager.js?v=119"></script>
+    <script src="src/systems/AudioManager.js?v=119"></script>
+    <script src="src/systems/Localization.js?v=119"></script>
+    <script src="src/systems/SaveManager.js?v=119"></script>
+    <script src="src/systems/AdManager.js?v=119"></script>
+    <script src="src/systems/AnalyticsService.js?v=119"></script>
+    <script src="src/systems/ProductionManagers.js?v=119"></script>
+    <script src="src/systems/ProfileManager.js?v=119"></script>
+    <script src="src/systems/PowerManager.js?v=119"></script>
+    <script src="src/systems/WeatherManager.js?v=119"></script>
+    <script src="src/data/ClubDatabase.js?v=119"></script>
+    <script src="src/data/SocialMediaData.js?v=119"></script>
+    <script src="src/data/EconomyConfig.js?v=119"></script>
+
+    <script src="src/systems/TeamDatabase.js?v=119"></script>
+    <script src="src/systems/MatchManager.js?v=119"></script>
+    <script src="src/systems/CareerManager.js?v=119"></script>
+    <script src="src/systems/TransferManager.js?v=119"></script>
+    
+    <!-- Scenes -->
+    <script src="src/entities/Player.js?v=119"></script>
+    <script src="src/scenes/BootScene.js?v=119"></script>
+    <script src="src/scenes/PreloadScene.js?v=119"></script>
+    <script src="src/scenes/OnboardingScene.js?v=119"></script>
+    <script src="src/scenes/MenuScene.js?v=119"></script>
+    <script src="src/scenes/CustomizationScene.js?v=119"></script>
+    <script src="src/scenes/BallShopScene.js?v=119"></script>
+    <script src="src/scenes/CareerWorldScene.js?v=119"></script>
+    <script src="src/scenes/KitSelectionScene.js?v=119"></script>
+    <script src="src/scenes/GameScene.js?v=119"></script>
+    <script src="src/scenes/SocialMediaScene.js?v=119"></script>
+    <script src="src/scenes/PostMatchScene.js?v=119"></script>
+    <script src="src/scenes/SplashScene.js?v=119"></script>
+    <script src="src/scenes/EndOfSeasonScene.js?v=119"></script>
+    <!-- QA Systems -->
+    <script src="src/systems/QAValidator.js?v=119"></script>
+    <script src="src/systems/QAController.js?v=119"></script>
+    <script src="src/systems/QAOverlay.js?v=119"></script>
+
+    <script src="src/main.js?v=119"></script>
+    <script>
+        window.addEventListener('contextmenu', function(e) { e.preventDefault(); }, { passive: false });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,25 @@
+{
+  "name": "furio-fc",
+  "version": "0.9.4",
+  "description": "Furio FC - 2D Head Soccer RPG",
+  "main": "index.js",
+  "scripts": {
+    "build": "node -e \"const fs = require('fs'); fs.cpSync('index.html', 'www/index.html'); fs.cpSync('src', 'www/src', {recursive: true}); fs.cpSync('assets', 'www/assets', {recursive: true}); console.log('Web build complete.');\"",
+    "test": "node scratch/test_gameplay_fixes.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@capacitor-community/admob": "^8.1.0",
+    "@capacitor-firebase/analytics": "^8.5.1",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.0"
+  }
+}
