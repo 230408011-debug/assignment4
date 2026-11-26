@@ -169,6 +169,7 @@ class PostMatchScene extends Phaser.Scene {
                     isMotm
                 }, this.userIsHome);
             }
+            if (this.matchStats.story) window.gameState.career.lastMatchStory = this.matchStats.story;
             activeMatch.status = 'completed';
         }
 
@@ -369,6 +370,13 @@ class PostMatchScene extends Phaser.Scene {
         }
 
         // Fix \n bug by using single \n linebreaks and replacing literal \\n
+        const story = this.matchStats.story;
+        if (story?.moments.length) {
+            const turkish = window.gameState.settings.language === 'tr';
+            const title = story.headline ? MatchStory.headline(story, turkish) : (turkish ? 'MAÇIN ÖNEMLİ ANLARI' : 'MATCH HIGHLIGHTS');
+            const lines = story.moments.map(moment => MatchStory.describe(moment, turkish));
+            summaryLines.splice(0, summaryLines.length, title, ...lines);
+        }
         const summaryText = summaryLines.join('\n').replaceAll('\\n', '\n');
 
         // Fix overflow bug using wordWrap with explicit width boundary

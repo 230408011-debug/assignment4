@@ -26,6 +26,10 @@ class GameScene extends Phaser.Scene {
         this.score = { left: 0, right: 0 };
         this.matchTime = 0;
         this.matchDuration = 90000; // 90 seconds
+        this.matchStory = new MatchStory(this.matchDuration);
+        this.tacticCard = null;
+        this.nextWingSample = 0;
+        this.wingMarker = null;
         this.matchState = 'INITIALIZING'; // Authoritative state: INITIALIZING, INTRO, PLAYING, PAUSED, FINISHED
         this.isGamePaused = false;
         this.isPauseMenuOpen = false;
@@ -690,6 +694,7 @@ class GameScene extends Phaser.Scene {
                 if (attacker === this.humanPlayer && this.userPlayerStats) {
                     this.userPlayerStats.tackles++;
                     this.recordMatchRatingEvent(0.25, "Top Çalma / Müdahale");
+                    this.matchStory.record("steal", this.matchTime);
                 } else if (defender === this.humanPlayer) {
                     if (this.userPlayerStats) this.userPlayerStats.turnovers = (this.userPlayerStats.turnovers || 0) + 1;
                     this.recordMatchRatingEvent(-0.20, "Top Kaybı");
@@ -786,6 +791,7 @@ class GameScene extends Phaser.Scene {
                 if (player.isLeftTeam && player !== this.humanPlayer) {
                     if (this.userPlayerStats) this.userPlayerStats.accuratePasses = (this.userPlayerStats.accuratePasses || 0) + 1;
                     this.recordMatchRatingEvent(0.15, "İsabetli Pas");
+                    this.matchStory.record("pass", this.matchTime);
                 } else if (!player.isLeftTeam) {
                     if (this.userPlayerStats) this.userPlayerStats.turnovers = (this.userPlayerStats.turnovers || 0) + 1;
                     this.recordMatchRatingEvent(-0.20, "Top Kaybı / Hatalı Pas");
@@ -1190,8 +1196,68 @@ class GameScene extends Phaser.Scene {
         if (progress === target) {
             this.objectiveText.setColor('#86efac');
             this.objectiveMeter.setFillStyle(0x4ade80);
+            this.matchStory.record('objective', this.matchTime);
             window.audioManager?.playSFX('achievement_unlock_sfx');
         }
+    }
+
+    updateMatchStory() {
+        if (!window.gameState.activeMatch) return;
+
+        const difference = this.score.left - this.score.right;
+        const tactic = this.matchStory.offer(this.matchTime, difference);
+        if (tactic) this.showTacticCard(tactic, difference);
+        if (this.tacticCard && (this.tacticCard.difference !== difference || this.matchTime >= this.tacticCard.expires)) {
+            this.dismissTacticCard();
+        }
+
+        if (this.matchTime < this.nextWingSample) return;
+        this.nextWingSample = this.matchTime + 400;
+        this.matchStory.observeAttack(this.matchTime, this.ballController?.isLeftTeam, this.ball.x, this.ball.y);
+        const lane = this.matchStory.coveredLane;
+        this.wingMarker = null;
+        if (!lane || !this.ballController?.isLeftTeam || this.ball.x < 1000) return;
+
+        let bestDistance = Infinity;
+        for (const player of this.players) {
+            if (player.isLeftTeam || player.isGoalkeeper || player.hasPossession) continue;
+            const distance = Phaser.Math.Distance.Squared(player.x, player.y, this.ball.x, 600 + lane * 250);
+            if (distance < bestDistance) {
+                this.wingMarker = player;
+                bestDistance = distance;
+            }
+        }
+    }
+
+    showTacticCard(tactic, difference) {
+        const { safeTop, safeRight } = window.getSafeArea();
+        const x = this.width - Math.max(safeRight + 130, 135);
+        const y = safeTop + 108;
+        const turkish = window.gameState.settings.language === 'tr';
+        const button = this.add.rectangle(x, y, 212, 54, 0x10243d, 0.97)
+            .setScrollFactor(0).setDepth(1150).setStrokeStyle(2, 0x67e8f9).setInteractive({ useHandCursor: true });
+        const title = this.add.text(x, y - 10, turkish ? 'SON 20 SANİYE' : 'FINAL 20 SECONDS', {
+            font: '700 12px sans-serif', color: '#bae6fd'
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(1151);
+        const label = this.add.text(x, y + 10, MatchStory.label(tactic, turkish), {
+            font: '800 17px sans-serif', color: '#ffffff'
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(1151);
+        this.cameras.main.ignore([button, title, label]);
+        this.tacticCard = { objects: [button, title, label], difference, expires: this.matchTime + 7500 };
+        button.on('pointerdown', () => {
+            if (this.isGamePaused || this.resetting || this.matchFinished || this.score.left - this.score.right !== difference) return;
+            this.matchStory.tactic = tactic;
+            this.matchStory.protectedScore = this.score.right;
+            this.matchStory.record('tactic', this.matchTime, { tactic });
+            title.setText(turkish ? 'TAKTİK UYGULANDI' : 'TACTIC ACTIVE');
+            button.disableInteractive().setStrokeStyle(2, 0x86efac);
+            this.tacticCard.expires = this.matchTime + 1800;
+        });
+    }
+
+    dismissTacticCard() {
+        this.tacticCard?.objects.forEach(object => object.destroy());
+        this.tacticCard = null;
     }
 
     createPossessionBar() {
@@ -1453,6 +1519,15 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
             this.updateMinimap();
         }
 
+        const goalLine = this.ball?.x;
+        if (!this.resetting && !this.goalScored && this.ball?.y > 470 && this.ball.y < 730) {
+            if (goalLine < 105 || goalLine > 1895) {
+                this.goalScored = true;
+                this.handleGoal(goalLine < 105 ? 'right' : 'left');
+                return;
+            }
+        }
+
         if (!this.matchFinished) {
             // Match Time Countdown
             if (this.ballController) {
@@ -1462,6 +1537,7 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
             if (this.matchTime >= this.matchDuration) {
                 this.matchTime = this.matchDuration;
             }
+            this.updateMatchStory();
             const remaining = this.matchDuration - this.matchTime;
             
             const seconds = Math.ceil(remaining / 1000);
@@ -1520,20 +1596,6 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
             }
         }
 
-        // Precise goal line crossing detection (full ball must cross strictly between posts)
-        if (!this.resetting && this.ball && !this.goalScored) {
-            const ballRadius = 20;
-            // Goal Left (Right team scores)
-            if (this.ball.x < 125 - ballRadius && this.ball.y > 470 && this.ball.y < 730) {
-                this.goalScored = true;
-                this.handleGoal('right');
-            }
-            // Goal Right (Left team scores)
-            else if (this.ball.x > 1875 + ballRadius && this.ball.y > 470 && this.ball.y < 730) {
-                this.goalScored = true;
-                this.handleGoal('left');
-            }
-            }
     }
 
     handleGoal(winnerSide) {
@@ -1558,6 +1620,14 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
             this.score.right++;
         }
         
+        this.matchStory.record('goal', this.matchTime, {
+            side: winnerSide,
+            left: this.score.left,
+            right: this.score.right,
+            equalizer: winnerSide === 'left' && this.score.left === this.score.right,
+            winner: winnerSide === 'left' && this.score.left === this.score.right + 1
+        });
+        this.dismissTacticCard();
         this.scoreTextLeft.setText(this.score.left); this.scoreTextRight.setText(this.score.right);
         this.cameras.main.shake(400, 0.015); this.cameras.main.zoomTo(1.2, 600, 'Sine.easeInOut');
         
@@ -2085,6 +2155,7 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
         if (this.matchFinished) return;
         this.matchFinished = true;
         this.matchState = 'FINISHED';
+        this.dismissTacticCard();
         
         console.log("[GameScene] MATCH FINISHED TRIGGERED");
 
@@ -2123,6 +2194,7 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
         const leftTeamStats = { ...userTeam, possession: userPossession };
         const rightTeamStats = { ...opponentTeam, possession: userPossession === null ? null : 100 - userPossession };
         const matchStats = {
+            story: this.matchStory.finish(this.score.left, this.score.right),
             homeStats: isHome ? leftTeamStats : rightTeamStats,
             awayStats: isHome ? rightTeamStats : leftTeamStats,
             scoreLeft: this.score.left,

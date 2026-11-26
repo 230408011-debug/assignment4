@@ -537,6 +537,7 @@ initSeason(clubId, contractOffer) {
             cups: [],
             transfers: [],
             completedMatches: isFreshCareer ? [] : (prev.completedMatches || []),
+            lastMatchStory: isFreshCareer ? null : (prev.lastMatchStory || null),
             seasonRewards: [],
             wonTrophies: isFreshCareer ? [] : (prev.wonTrophies || []),
             

@@ -3261,7 +3261,12 @@ showContractConfirmation(offer) {
             }).setOrigin(0.5));
         }
 
-        c.add(this.add.text(x + 16, y + 70, 'Sezon Başlangıcı', { font: '700 8.5px sans-serif', fill: '#475569' }));
+        const story = this.cw.lastMatchStory;
+        const turkish = window.gameState.settings.language === 'tr';
+        const caption = story ? MatchStory.headline(story, turkish) : (turkish ? 'Sezon Başlangıcı' : 'Season start');
+        c.add(this.add.text(x + 16, y + 69, caption, {
+            font: '700 11px sans-serif', fill: story ? '#7dd3fc' : '#64748b'
+        }));
     }
 
     renderMiniTableNew(c, x, y, w, h) {

@@ -1057,6 +1057,20 @@ class Player extends Phaser.GameObjects.Container {
                 minX = 150;
                 maxX = 1850;
             }
+            const tactic = this.scene.matchStory?.tactic;
+            if (this.isLeftTeam && tactic && !this.hasPossession) {
+                if (tactic === 'protect') {
+                    targetX -= 135;
+                    targetY += (600 - targetY) * 0.18;
+                } else if (['SUPPORT', 'COVER', 'POSITIONING'].includes(this.aiState)) {
+                    targetX += tactic === 'push' ? 170 : 125;
+                }
+            }
+            if (this === this.scene.wingMarker && ['COVER', 'POSITIONING', 'DEFEND'].includes(this.aiState)) {
+                const laneY = 600 + this.scene.matchStory.coveredLane * 260;
+                targetY += (laneY - targetY) * 0.35;
+                targetX = Math.max(targetX, ball.x + 90);
+            }
             this.aiTarget.x = Phaser.Math.Clamp(targetX, minX, maxX);
             this.aiTarget.y = Phaser.Math.Clamp(targetY, 150, 1050);
         }
@@ -1329,6 +1343,7 @@ AC:${this.lastDecision || 'NONE'}`);
                 
                 if (this.isHuman && this.scene) {
                     if (this.scene.userPlayerStats) this.scene.userPlayerStats.tackles++;
+                    this.scene.matchStory?.record("steal", this.scene.matchTime);
                     if (this.scene.recordMatchRatingEvent) this.scene.recordMatchRatingEvent(0.25, "Top Çalma / Müdahale");
                 }
                 

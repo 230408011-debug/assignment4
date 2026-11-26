@@ -88,3 +88,38 @@ assert.equal(saves, 1);
 assert.equal(career.ez, 100 + 30 + 15 + 15 + objective.ez);
 
 console.log('Android career regressions passed: backup, migration, away result and objective reward.');
+
+const MatchStory = loadSource('systems/MatchStory.js', 'MatchStory', {});
+const story = new MatchStory(90000);
+assert.equal(story.offer(69999, -1), null);
+assert.equal(story.offer(70000, -1), 'push');
+assert.equal(story.offer(71000, 0), null);
+assert.equal(story.tactic, null);
+assert.equal(new MatchStory(90000).offer(70000, 1), 'protect');
+assert.equal(new MatchStory(90000).offer(70000, 0), 'chase');
+
+for (const time of [1000, 4000, 7000]) {
+    story.observeAttack(time, true, 1200, 300);
+    story.observeAttack(time + 500, false, 1200, 300);
+}
+assert.equal(story.coveredLane, -1);
+story.observeAttack(10000, true, 1200, 950);
+assert.equal(story.coveredLane, 0);
+
+story.record('pass', 4000);
+story.record('tactic', 71000, { tactic: 'push' });
+story.record('objective', 80000);
+story.record('goal', 89999, { side: 'left', left: 1, right: 1, equalizer: true });
+const replay = story.finish(1, 1);
+assert.equal(replay.headline, 'equalizer');
+assert.equal(replay.seconds, 1);
+assert.equal(Array.from(replay.moments, event => event.type).join(','), 'tactic,objective,goal');
+assert.equal(story.finish(1, 2).headline, null);
+
+window.SaveManager = save;
+window.gameState.career.lastMatchStory = replay;
+assert.equal(save.save(), true);
+window.gameState = newState();
+assert.equal(save.load(), true);
+assert.equal(window.gameState.career.lastMatchStory.headline, 'equalizer');
+console.log('Match story regressions passed: tactics, wing coverage, late goal and save reload.');
