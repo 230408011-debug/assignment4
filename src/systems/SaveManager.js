@@ -7,7 +7,7 @@ const SaveManager = {
         if (!state.player || typeof state.player !== 'object') return false;
         if (!state.player.attributes || typeof state.player.attributes !== 'object') return false;
         if (!state.career || typeof state.career !== 'object') return false;
-        if (typeof state.career.ez !== 'number') return false;
+        if (!Number.isFinite(state.career.ez)) return false;
 
         // Strict career validation if started
         if (state.career.started) {
@@ -27,16 +27,16 @@ const SaveManager = {
                 return false;
             }
 
-            window.gameState.saveVersion = this.SAVE_VERSION;
-            const gameStateStr = JSON.stringify(window.gameState);
+            const gameStateStr = JSON.stringify({ ...window.gameState, saveVersion: this.SAVE_VERSION });
             
-            // Safe backup writing (only backup if main is about to be overwritten successfully)
+            // Preserve the last usable save, including after recovery from a damaged primary.
             const oldMain = localStorage.getItem(this.SAVE_KEY);
-            if (oldMain) {
+            if (this.readSave(oldMain)) {
                 localStorage.setItem(this.SAVE_KEY + '_backup', oldMain);
             }
             
             localStorage.setItem(this.SAVE_KEY, gameStateStr);
+            window.gameState.saveVersion = this.SAVE_VERSION;
             return true;
         } catch (e) {
             console.error('SaveManager: Failed to save', e);
@@ -44,59 +44,56 @@ const SaveManager = {
         }
     },
 
-    load() {
-        let loaded = false;
+    readSave(raw) {
+        if (!raw) return null;
         try {
-            let raw = localStorage.getItem(this.SAVE_KEY);
-            let parsed = null;
-            
-            if (raw) {
-                try {
-                    parsed = JSON.parse(raw);
-                } catch(e) {
-                    console.warn("Main save corrupted, attempting backup.");
-                }
-            }
-            
-            if (!parsed) {
-                raw = localStorage.getItem(this.SAVE_KEY + '_backup');
-                if (raw) {
+            const state = JSON.parse(raw);
+            if (!state || typeof state !== 'object' || Array.isArray(state)) return null;
+            const version = state.saveVersion ?? 1;
+            if (!Number.isInteger(version) || version < 1 || version > this.SAVE_VERSION) return null;
+            if (version === this.SAVE_VERSION) return this.validate(state) ? state : null;
+
+            const isRecord = value => value && typeof value === 'object' && !Array.isArray(value);
+            if (!isRecord(state.player) && !isRecord(state.profile)) return null;
+            if (state.career !== undefined && !isRecord(state.career)) return null;
+            return state;
+        } catch {
+            return null;
+        }
+    },
+
+    load() {
+        try {
+            const raw = localStorage.getItem(this.SAVE_KEY);
+            const parsed = this.readSave(raw) || this.readSave(localStorage.getItem(this.SAVE_KEY + '_backup'));
+            if (parsed) this.deepMerge(window.gameState, parsed);
+
+            const legacyKey = 'headSoccerCareerData';
+            let importedLegacyCareer = false;
+            if (!parsed?.career?.started && !window.gameState.career?.started) {
+                for (const key of [legacyKey, legacyKey + '_backup']) {
                     try {
-                        parsed = JSON.parse(raw);
-                    } catch(e) {
-                        console.error("Backup save also corrupted.");
+                        const legacyCareer = JSON.parse(localStorage.getItem(key));
+                        if (!legacyCareer || typeof legacyCareer !== 'object' || Array.isArray(legacyCareer)) continue;
+                        this.deepMerge(window.gameState.career, legacyCareer);
+                        importedLegacyCareer = true;
+                        break;
+                    } catch {
+                        // Try the legacy backup if the primary could not be read.
                     }
                 }
             }
 
             if (parsed) {
-                const loadedVersion = parsed.saveVersion || 1;
-                if (loadedVersion < 9) {
-                    console.warn("Legacy save detected. Wiping to ensure a 100% clean career start for PUBLISHER VERSION.");
-                    localStorage.removeItem(this.SAVE_KEY);
-                    localStorage.removeItem(this.SAVE_KEY + '_backup');
-                    localStorage.removeItem('headSoccerCareerData');
-                    localStorage.removeItem('headSoccerCareerData_backup');
-                    return false;
-                }
-                
-                this.deepMerge(window.gameState, parsed);
-                loaded = true;
+                window.gameState.saveVersion = parsed.saveVersion ?? 1;
                 this.migrate(window.gameState);
             }
-            // Migration path: Load legacy career data if available
-            let careerRaw = localStorage.getItem('headSoccerCareerData');
-            if (careerRaw && window.gameState && window.gameState.career) {
-                try {
-                    const parsedCareer = JSON.parse(careerRaw);
-                    this.deepMerge(window.gameState.career, parsedCareer);
-                    localStorage.removeItem('headSoccerCareerData');
-                    localStorage.removeItem('headSoccerCareerData_backup');
-                } catch(e) {}
-            }
-
             this.validateCareerAfterLoad();
-            return loaded;
+            if (importedLegacyCareer && this.save()) {
+                localStorage.removeItem(legacyKey);
+                localStorage.removeItem(legacyKey + '_backup');
+            }
+            return Boolean(parsed || importedLegacyCareer);
         } catch (e) {
             console.error('SaveManager: Failed to load', e);
             return false;
@@ -228,17 +225,17 @@ const SaveManager = {
             }
             
             state.saveVersion = this.SAVE_VERSION;
-            this.save();
         }
     },
 
     deepMerge(target, source) {
-        for (const key in source) {
-            if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
-                if (!target[key]) target[key] = {};
-                this.deepMerge(target[key], source[key]);
+        for (const [key, value] of Object.entries(source)) {
+            if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+            if (value && typeof value === 'object' && !Array.isArray(value)) {
+                if (!target[key] || typeof target[key] !== 'object' || Array.isArray(target[key])) target[key] = {};
+                this.deepMerge(target[key], value);
             } else {
-                target[key] = source[key];
+                target[key] = value;
             }
         }
     },

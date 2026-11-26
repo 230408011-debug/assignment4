@@ -27,6 +27,29 @@ const EconomyConfig = {
         return 0; // Maxed out
     },
 
+    // Rotate objectives by fixture so restarting a match keeps the same target.
+    matchObjectives: [
+        { stat: 'accuratePasses', target: 2, tr: 'İsabetli pas', en: 'Completed passes' },
+        { stat: 'tackles', target: 2, tr: 'Top çalma', en: 'Ball recoveries' },
+        { stat: 'shotsOnTarget', target: 2, tr: 'İsabetli şut', en: 'Shots on target' },
+        { stat: 'goals', target: 1, tr: 'Gol', en: 'Goal' }
+    ],
+    matchObjectiveReward: { ez: 12, xp: 20 },
+
+    getMatchObjective(fixture, season, language) {
+        if (!fixture) return null;
+        const round = Math.max(1, Number(fixture.week || fixture.round) || 1);
+        const seasonNumber = Math.max(1, Number(season) || 1);
+        const index = (round + seasonNumber - 2) % this.matchObjectives.length;
+        const objective = this.matchObjectives[index];
+        return {
+            stat: objective.stat,
+            target: objective.target,
+            label: language === 'tr' ? objective.tr : objective.en,
+            ...this.matchObjectiveReward
+        };
+    },
+
     // Match Performance Rewards
     matchRewards: {
         winBonus: 50,

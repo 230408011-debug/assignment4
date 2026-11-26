@@ -11,13 +11,13 @@ class GameScene extends Phaser.Scene {
         this.cameras.main.fadeIn(300);
         console.log("GAMEPLAY_ENTER");
         console.log("GAMEPLAY_CREATE_START");
-        window.AI_DEBUG_MODE = false; // Disabled for production
-        this.input.keyboard.on('keydown-O', () => { window.AI_DEBUG_MODE = !window.AI_DEBUG_MODE; });
+        window.AI_DEBUG_MODE = false;
         
         this.width = this.cameras.main.width;
         this.height = this.cameras.main.height;
-        this.isMobile = this.sys.game.device.os.android || this.sys.game.device.os.iOS || this.sys.game.device.input.touch;
+        this.isMobile = this.sys.game.device.os.android || this.sys.game.device.os.iOS || navigator.maxTouchPoints > 0;
 
+        this.input.enabled = true;
         this.physics.world.isPaused = false;
         this.physics.world.gravity.y = 0;
         this.physics.world.setBounds(-100, 0, 2200, 1200);
@@ -31,6 +31,12 @@ class GameScene extends Phaser.Scene {
         this.isPauseMenuOpen = false;
         this.pauseMenuContainer = null;
         this.resetting = false;
+        this._pendingHumanPass = false;
+        this._displayedSeconds = 90;
+        this.currentMatchRating = 6;
+        this.teamStats = [0, 1].map(() => ({
+            shots: 0, shotsOnTarget: 0, passes: 0, tackles: 0, possessionMs: 0
+        }));
         this.isIntroActive = false;
         this.matchFinished = false;
         this.ballState = 'FREE'; // FREE, CONTROLLED, KICKING
@@ -62,21 +68,25 @@ class GameScene extends Phaser.Scene {
         const preUICount = this.children.list.length;
 
         this.createHUD();
-        console.log("HUD_READY");
         this.createMobileControls();
+        this.createPossessionBar();
+        this.createObjectiveHUD();
+        console.log("HUD_READY");
 
         // Optional Input Debug (For QA Testing)
-        this.createInputDebug();
+        if (window.QA_MODE) this.createInputDebug();
 
         for (let i = preUICount; i < this.children.list.length; i++) {
             this.cameras.main.ignore(this.children.list[i]);
         }
         
-        // --- CLEANUP ---
+        const cancelInput = () => this.resetMatchInput();
+        const canvas = this.sys.game.canvas;
+        window.addEventListener('blur', cancelInput);
+        canvas.addEventListener('touchcancel', cancelInput);
         this.events.once('shutdown', () => {
-            if (this.sparkEmitter) this.sparkEmitter.destroy();
-            if (this.trailEmitter) this.trailEmitter.destroy();
-            if (this.ballTrail) this.ballTrail.destroy();
+            window.removeEventListener('blur', cancelInput);
+            canvas.removeEventListener('touchcancel', cancelInput);
             this.shutdown();
         });
 
@@ -90,10 +100,9 @@ class GameScene extends Phaser.Scene {
         if (window.audioManager) {
             window.audioManager.scene = this; // Update scene context for tweens
             window.audioManager.stopBGM(1000); // Fade out menu music over 1s
-            window.audioManager.playAmbience('furio_fc_taraftar_gameplay_loop');
+            window.audioManager.playAmbience('crowd_ambience_loop');
         }
 
-        // Memory cleanup listener is merged above
         console.log("MATCH_STATE_READY");
         
         this.createMatchIntro();
@@ -101,80 +110,6 @@ class GameScene extends Phaser.Scene {
         console.log("MATCH_STARTED");
         
     }
-
-    shutdown() {
-        console.log("[GameScene] SHUTDOWN: Cleaning up match state and memory.");
-        this.input.keyboard.off('keydown-Q');
-        this.input.keyboard.off('keydown-C');
-        this.input.keyboard.off('keydown-O');
-        
-        // Remove ALL input listeners to prevent double-firings in next match
-        this.input.removeAllListeners();
-        
-        if (this.sparkEmitter) {
-            this.sparkEmitter.stop();
-            this.sparkEmitter = null;
-        }
-        if (this.trailEmitter) {
-            this.trailEmitter.stop();
-            this.trailEmitter = null;
-        }
-        
-        if (this.pauseMenuContainer) {
-            this.pauseMenuContainer.destroy();
-            this.pauseMenuContainer = null;
-        }
-        
-        // Fully clear out players array and destroy physics bodies
-        if (this.players) {
-            this.players.forEach(p => {
-                if (p) {
-                    if (p.body) p.body.destroy();
-                    p.destroy();
-                }
-            });
-            this.players = [];
-        }
-        
-        if (this.ball && this.ball.body) {
-            this.ball.body.destroy();
-            this.ball.destroy();
-            this.ball = null;
-        }
-
-        if (this.walls) {
-            this.walls.destroy(true);
-            this.walls = null;
-        }
-        
-        if (this.goalStructures) {
-            this.goalStructures.destroy(true);
-            this.goalStructures = null;
-        }
-        
-        if (this.input) {
-            this.input.enabled = true;
-        }
-        
-        // Wipe local references
-        this.humanPlayer = null;
-        this.ballController = null;
-        this.lastBallController = null;
-        this.lastTouchPlayer = null;
-        this.secondLastTouchPlayer = null;
-        this.weatherManager = null;
-        
-        // Important: Stop physics world safely if it was running
-        if (this.physics && this.physics.world) {
-            this.physics.world.isPaused = true;
-        }
-        
-        // Remove all tweens and time events created in this scene
-        this.tweens.killAll();
-        this.time.removeAllEvents();
-    }
-
-
 
     createMatchIntro() {
         this.matchState = 'INTRO';
@@ -581,22 +516,17 @@ class GameScene extends Phaser.Scene {
                 const userClub = window.TeamDatabase.getClub(userClubId);
                 const oppClub = window.TeamDatabase.getClub(oppClubId);
                 
-                const homeKitObj = isUserHome ? (activeMatch.userKit || userClub?.homeKitColors) : (activeMatch.opponentKit || userClub?.homeKitColors);
-                const awayKitObj = isUserHome ? (activeMatch.opponentKit || oppClub?.awayKitColors || oppClub?.homeKitColors) : (activeMatch.userKit || oppClub?.awayKitColors || oppClub?.homeKitColors);
-
+                const userKit = activeMatch.userKit || (isUserHome ? userClub?.homeKitColors : userClub?.awayKitColors);
+                const opponentKit = activeMatch.opponentKit || (isUserHome ? oppClub?.awayKitColors : oppClub?.homeKitColors);
                 homeCol = {
-                    primary: (window.gameState.teamColors && window.gameState.teamColors.home) ? window.gameState.teamColors.home.primary : 
-                              (homeKitObj?.primary || homeKitObj?.shirt || userClub?.primaryColor) || 0xe11d48,
-                    secondary: (window.gameState.teamColors && window.gameState.teamColors.home) ? window.gameState.teamColors.home.secondary : 
-                              (homeKitObj?.secondary || homeKitObj?.shorts || userClub?.secondaryColor) || 0xffffff
+                    primary: userKit?.primary ?? userKit?.shirt ?? userClub?.primaryColor ?? 0xe11d48,
+                    secondary: userKit?.secondary ?? userKit?.shorts ?? userClub?.secondaryColor ?? 0xffffff
                 };
                 awayCol = {
-                    primary: (window.gameState.teamColors && window.gameState.teamColors.away) ? window.gameState.teamColors.away.primary : 
-                              (awayKitObj?.primary || awayKitObj?.shirt || oppClub?.primaryColor) || 0x2563eb,
-                    secondary: (window.gameState.teamColors && window.gameState.teamColors.away) ? window.gameState.teamColors.away.secondary : 
-                              (awayKitObj?.secondary || awayKitObj?.shorts || oppClub?.secondaryColor) || 0xffffff
+                    primary: opponentKit?.primary ?? opponentKit?.shirt ?? oppClub?.primaryColor ?? 0x2563eb,
+                    secondary: opponentKit?.secondary ?? opponentKit?.shorts ?? oppClub?.secondaryColor ?? 0xffffff
                 };
-                
+
                 if (userClub && userClub.squad) {
                     this.myShort = window.TeamDatabase.getShortName(userClubId);
                     myPlayers = [
@@ -756,6 +686,7 @@ class GameScene extends Phaser.Scene {
                 this.lastBallController = attacker;
                 this.ballState = 'CONTROLLED';
                 
+                this.teamStats[attacker.isLeftTeam ? 0 : 1].tackles++;
                 if (attacker === this.humanPlayer && this.userPlayerStats) {
                     this.userPlayerStats.tackles++;
                     this.recordMatchRatingEvent(0.25, "Top Çalma / Müdahale");
@@ -884,19 +815,10 @@ class GameScene extends Phaser.Scene {
     }
 
     setupInput() {
-        this.cursors = this.input.keyboard.createCursorKeys();
-        this.keys = this.input.keyboard.addKeys('W,A,S,D,SPACE,SHIFT,F,Q,C,O');
-        
-        // Manual player switching key bindings
-        this.input.keyboard.on('keydown-Q', () => this.switchActivePlayer());
-        this.input.keyboard.on('keydown-C', () => this.switchActivePlayer());
-        
-        this.input.keyboard.on('keydown-O', () => {
-            console.log("DEV CHEAT: Skip Match");
-            this.userPlayerStats.goals += 2;
-            this.score.left += 2;
-            this.matchTimer = this.matchDuration;
-        });
+        this.keys = {
+            ...this.input.keyboard.createCursorKeys(),
+            ...this.input.keyboard.addKeys('W,A,S,D,SPACE,SHIFT,Z,X,C,F')
+        };
     }
 
     createHUD() {
@@ -912,13 +834,13 @@ class GameScene extends Phaser.Scene {
         let homeColorInt = 0xd946ef;
         let awayColorInt = 0x00ffff;
 
-        const isUserHome = window.gameState.activeMatch ? window.gameState.activeMatch.userSide === 'home' : true;
-        
-        const hCol = (window.gameState.teamColors && window.gameState.teamColors.home) ? window.gameState.teamColors.home.primary : 
-                     (this.sceneData.homeColor !== undefined ? this.sceneData.homeColor.primary : 0xd946ef);
+        const isUserHome = window.gameState.activeMatch?.userSide !== 'away';
+        const userColors = window.gameState.teamColors?.[isUserHome ? 'home' : 'away'];
+        const opponentColors = window.gameState.teamColors?.[isUserHome ? 'away' : 'home'];
+
+        const hCol = userColors?.primary ?? (this.sceneData.homeColor !== undefined ? this.sceneData.homeColor.primary : 0xd946ef);
                      
-        const aCol = (window.gameState.teamColors && window.gameState.teamColors.away) ? window.gameState.teamColors.away.primary : 
-                     (this.sceneData.awayColor !== undefined ? this.sceneData.awayColor.primary : 0x00ffff);
+        const aCol = opponentColors?.primary ?? (this.sceneData.awayColor !== undefined ? this.sceneData.awayColor.primary : 0x00ffff);
         
         homeColorInt = hCol;
         homeColorHex = "#" + hCol.toString(16).padStart(6, '0');
@@ -963,12 +885,13 @@ class GameScene extends Phaser.Scene {
         this.add.text(cx + 110, topY + 2, awayClubShort, { font: '700 16px sans-serif', fill: awayColorHex }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
         
         // Clean, framed speed badge
+        const speedX = cx + 146;
         const spdBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
         spdBg.fillStyle(0x0a0f1d, 0.95);
-        spdBg.fillRoundedRect(cx - 52, topY + 27, 104, 18, 9);
+        spdBg.fillRoundedRect(speedX - 52, topY + 29, 104, 18, 9);
         spdBg.lineStyle(1.5, 0x1e293b, 0.9);
-        spdBg.strokeRoundedRect(cx - 52, topY + 27, 104, 18, 9);
-        this.speedText = this.add.text(cx, topY + 36, "SPD: 0 KM/H", { font: '700 11px monospace', fill: '#38bdf8' }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+        spdBg.strokeRoundedRect(speedX - 52, topY + 29, 104, 18, 9);
+        this.speedText = this.add.text(speedX, topY + 38, "0 KM/H", { font: '700 11px monospace', fill: '#38bdf8' }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
 
         // Pause Button binding
         const pauseX = this.width - Math.max(50, safeArea.safeRight + 30);
@@ -997,8 +920,14 @@ class GameScene extends Phaser.Scene {
     createMinimap() {
         const mx = this.width / 2; const my = this.height - 110;
         const mapBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
-        mapBg.fillStyle(0x050110, 0.85); mapBg.fillRoundedRect(mx - 110, my - 55, 220, 110, 15);
-        mapBg.lineStyle(1.5, 0x334155, 0.85); mapBg.strokeRoundedRect(mx - 110, my - 55, 220, 110, 15);
+        mapBg.fillStyle(0x050110, 0.88);
+        mapBg.fillRoundedRect(mx - 110, my - 55, 220, 110, 12);
+        mapBg.lineStyle(1, 0x64748b, 0.7);
+        mapBg.strokeRoundedRect(mx - 110, my - 55, 220, 110, 12);
+        mapBg.lineStyle(1, 0x94a3b8, 0.32);
+        mapBg.strokeRect(mx - 96, my - 44, 192, 88);
+        mapBg.lineBetween(mx, my - 44, mx, my + 44);
+        mapBg.strokeCircle(mx, my, 15);
         // Pre-allocate minimap dots (max 12 players + 1 ball = 13)
         this.minimapDots = [];
         for (let i = 0; i < 13; i++) {
@@ -1050,14 +979,29 @@ class GameScene extends Phaser.Scene {
 
 
     createMobileControls() {
-        this.mobileKeys = { left: false, right: false, up: false, down: false, shoot: false, pass: false, through: false, special: false, joyAngle: 0, joyForce: 0 };
-        const h = this.height; 
+        this.mobileKeys = { left: false, right: false, up: false, down: false, shoot: false, pass: false, sprint: false, joyAngle: 0, joyForce: 0 };
+        if (!this.isMobile) {
+            const isTurkish = window.gameState.settings.language === 'tr';
+            const legend = isTurkish
+                ? 'WASD / ↑↓←→  Hareket   •   Z / Boşluk  Şut\nX  Pas   •   C / Shift  Sprint   •   F  Müdahale'
+                : 'WASD / ↑↓←→  Move   •   Z / Space  Shoot\nX  Pass   •   C / Shift  Sprint   •   F  Tackle';
+            this.add.text(this.width - 24, this.height - 26, legend, {
+                font: '600 14px sans-serif',
+                color: '#e2e8f0',
+                backgroundColor: '#090618',
+                padding: { x: 10, y: 7 },
+                align: 'right',
+                lineSpacing: 6
+            }).setOrigin(1, 1).setScrollFactor(0).setDepth(1000);
+            this.resetMatchInput = () => this.resetInputState();
+            return;
+        }
+
+        const h = this.height;
         const safeArea = window.getSafeArea ? window.getSafeArea() : { safeLeft: 0, safeRight: 0 };
         
         this.mobileControlsGroup = this.add.group();
         
-        // Multi-touch tracking helper
-        this.input.addPointer(3); // Support up to 3 fingers easily
         
         // --- REDESIGNED TRUE FLOATING JOYSTICK (Left) ---
         const maxDist = 80;
@@ -1103,7 +1047,7 @@ class GameScene extends Phaser.Scene {
         };
         
         this.input.on('pointerdown', (p) => {
-            if (p.x < this.width / 2 && !activeJoyPointer) {
+            if (this.matchState === 'PLAYING' && !this.isGamePaused && p.x < this.width / 2 && !activeJoyPointer) {
                 activeJoyPointer = p;
                 startJoyX = p.x;
                 startJoyY = p.y;
@@ -1120,7 +1064,7 @@ class GameScene extends Phaser.Scene {
         });
         
         const resetJoy = (p) => {
-            if (activeJoyPointer && p.id === activeJoyPointer.id) {
+            if (activeJoyPointer && (!p || p.id === activeJoyPointer.id)) {
                 activeJoyPointer = null;
                 joyBase.setAlpha(0);
                 joyStick.setAlpha(0).setScale(1);
@@ -1131,10 +1075,14 @@ class GameScene extends Phaser.Scene {
         };
         
         this.input.on('pointerup', resetJoy);
-        // Removed pointerout to avoid sensitive resets when sliding off canvas
-        // Also handle pointercancel explicitly
-        this.input.on('pointercancel', resetJoy);
+        this.input.on('pointerupoutside', resetJoy);
 
+        const releaseButtons = [];
+        this.resetMatchInput = () => {
+            resetJoy();
+            releaseButtons.forEach(release => release());
+            this.resetInputState();
+        };
         // --- REDESIGNED ACTION BUTTONS (Right) ---
         const actX = Math.min(this.width - 140, this.width - safeArea.safeRight - 100); 
         const actY = h - 140;
@@ -1144,14 +1092,17 @@ class GameScene extends Phaser.Scene {
             const btnIcon = this.add.text(x, y - 6, icon, {fontSize: fontSize}).setOrigin(0.5).setScrollFactor(0).setDepth(1002);
             const btnText = this.add.text(x, y + radius * 0.4, label, {font: '800 11px sans-serif', fill: '#ffffff'}).setOrigin(0.5).setScrollFactor(0).setDepth(1002);
             
-            // Massive hit zone
-            const hitZone = this.add.circle(x, y, radius * 2.5).setInteractive().setScrollFactor(0).setDepth(1003);
+            const hitZone = this.add.zone(x, y, 2 * (radius + 8), 2 * (radius + 8))
+                .setInteractive(new Phaser.Geom.Circle(radius + 8, radius + 8, radius + 8), Phaser.Geom.Circle.Contains)
+                .setScrollFactor(0).setDepth(1003);
+            let activePointerId = null;
             
             this.mobileControlsGroup.addMultiple([btnBg, btnIcon, btnText, hitZone]);
             
-            hitZone.on('pointerdown', (p) => { 
+            hitZone.on('pointerdown', (p) => {
+                if (this.matchState !== 'PLAYING' || this.isGamePaused || activePointerId !== null) return;
+                activePointerId = p.id;
                 this.mobileKeys[key] = true;
-                if (key === 'through') this.mobileKeys['sprint'] = true;
                 
                 // Add camera shake on shoot for max juice
                 if (key === 'shoot' && this.cameras && this.cameras.main) {
@@ -1169,38 +1120,78 @@ class GameScene extends Phaser.Scene {
                 btnBg.setStrokeStyle(3, color, 1);
             });
             
-            const resetBtn = () => { 
-                this.mobileKeys[key] = false; 
-                if (key === 'through') this.mobileKeys['sprint'] = false;
+            const resetBtn = (p) => {
+                if (activePointerId === null || (p && p.id !== activePointerId)) return;
+                activePointerId = null;
+                if (key !== 'pass' || !p) this.mobileKeys[key] = false;
                 // Juicy release elastic tween
                 this.tweens.add({
                     targets: [btnBg, btnIcon, btnText],
                     scale: 1,
-                    alpha: 0.4,
-                    duration: 300,
+                    alpha: 1,
+                    duration: 150,
                     ease: 'Back.easeOut'
                 });
                 btnBg.setStrokeStyle(1.5, color, 0.6);
             };
-            hitZone.on('pointerup', resetBtn);
-            hitZone.on('pointerupoutside', resetBtn);
-            hitZone.on('pointercancel', resetBtn);
-            hitZone.on('pointerout', (p) => {
-                if (!p || !p.isDown) resetBtn();
+            this.input.on('pointerup', resetBtn);
+            this.input.on('pointerupoutside', resetBtn);
+            releaseButtons.push(() => {
+                resetBtn();
+                this.mobileKeys[key] = false;
             });
             return { bg: btnBg, icon: btnIcon, text: btnText, color: color };
         };
 
         // Ergonomic mobile layout with increased spacing & optimized hitboxes
-        createActBtn(actX + 65, actY - 65, 48, 0xf43f5e, "SHOOT", "🎯", "shoot", '24px');
-        createActBtn(actX + 35, actY + 55, 42, 0x38bdf8, "PASS", "👟", "pass", '20px');
-        this.sprintBtnObj = createActBtn(actX - 85, actY + 25, 40, 0x4ade80, "SPRINT", "🏃", "through", '18px');
+        const isTurkish = window.gameState.settings.language === 'tr';
+        createActBtn(actX + 65, actY - 65, 48, 0xf43f5e, isTurkish ? "ŞUT" : "SHOOT", "🎯", "shoot", '24px');
+        createActBtn(actX + 35, actY + 55, 42, 0x38bdf8, isTurkish ? "PAS" : "PASS", "👟", "pass", '20px');
+        this.sprintBtnObj = createActBtn(actX - 85, actY + 25, 40, 0x4ade80, isTurkish ? "KOŞ" : "SPRINT", "🏃", "sprint", '18px');
 
-        this.createPossessionBar();
     }
 
-    switchActivePlayer() {
-        return;
+    resetInputState() {
+        this.input.keyboard.resetKeys();
+        this.humanPlayer?.clearShotCharge();
+    }
+
+    createObjectiveHUD() {
+        this.matchObjective = window.gameState.activeMatch?.objective;
+        this.objectiveMeter = null;
+        this.objectiveProgress = -1;
+        if (!this.matchObjective) return;
+
+        const { safeTop, safeLeft } = window.getSafeArea();
+        const x = safeLeft + 20;
+        const y = safeTop + 18;
+        this.add.rectangle(x, y, 202, 52, 0x090618, 0.9)
+            .setOrigin(0).setStrokeStyle(1, 0x38bdf8, 0.45).setScrollFactor(0).setDepth(1100);
+        this.objectiveText = this.add.text(x + 12, y + 10, '', {
+            font: '700 15px sans-serif', color: '#e2e8f0'
+        }).setScrollFactor(0).setDepth(1101);
+        this.add.rectangle(x + 12, y + 39, 178, 4, 0x334155)
+            .setOrigin(0).setScrollFactor(0).setDepth(1101);
+        this.objectiveMeter = this.add.rectangle(x + 12, y + 39, 178, 4, 0x38bdf8)
+            .setOrigin(0).setScrollFactor(0).setDepth(1102);
+        this.updateObjectiveHUD();
+    }
+
+    updateObjectiveHUD() {
+        if (!this.objectiveMeter) return;
+
+        const { stat, target, label } = this.matchObjective;
+        const progress = Math.min(target, this.userPlayerStats[stat] ?? 0);
+        if (progress === this.objectiveProgress) return;
+
+        this.objectiveProgress = progress;
+        this.objectiveText.setText(`${label}  ${progress}/${target}`);
+        this.objectiveMeter.setScale(progress / target, 1);
+        if (progress === target) {
+            this.objectiveText.setColor('#86efac');
+            this.objectiveMeter.setFillStyle(0x4ade80);
+            window.audioManager?.playSFX('achievement_unlock_sfx');
+        }
     }
 
     createPossessionBar() {
@@ -1243,7 +1234,7 @@ class GameScene extends Phaser.Scene {
         const text = `--- INPUT DEBUG ---
 JOY: L:${mk.left} R:${mk.right} U:${mk.up} D:${mk.down}
      ANG:${mk.joyAngle.toFixed(2)} FRC:${mk.joyForce.toFixed(2)}
-BTN: SHOOT:${mk.shoot} PASS:${mk.pass} SPRINT:${mk.through}
+BTN: SHOOT:${mk.shoot} PASS:${mk.pass} SPRINT:${mk.sprint}
 PTR: ${this.input.pointer1.isDown?'P1 ':''}${this.input.pointer2.isDown?'P2 ':''}${this.input.pointer3.isDown?'P3 ':''}
 POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
         this.inputDebugText.setText(text);
@@ -1392,7 +1383,8 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
             }
         }
 
-        this.players.forEach(p => p.update && p.update(time, delta, this.cursors || this.keys, this.mobileKeys, this.ball));
+        this.players.forEach(p => p.update && p.update(time, delta, this.keys, this.mobileKeys, this.ball));
+        this.updateObjectiveHUD();
 
         // Controlled player switching has been disabled (user stays in control of their custom character)
 
@@ -1425,7 +1417,7 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
                 this._smoothedSpeedKmh = (alpha * clampedKmh) + ((1 - alpha) * this._smoothedSpeedKmh);
             }
             const displayKmh = Math.round(this._smoothedSpeedKmh);
-            this.speedText.setText(`SPD: ${displayKmh} KM/H`);
+            this.speedText.setText(`${displayKmh} KM/H`);
         }
 
         // Dynamic Sprint Button 3 States
@@ -1437,7 +1429,7 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
                 this.sprintBtnObj.icon.setText("🔒");
                 this.sprintBtnObj.text.setFill("#64748b");
                 this.sprintBtnObj.bg.setScale(1.0);
-            } else if (this.humanPlayer.isSprinting || (this.mobileKeys && (this.mobileKeys.through || this.mobileKeys.sprint))) {
+            } else if (this.humanPlayer.isSprinting || (this.mobileKeys && (this.mobileKeys.sprint))) {
                 // State 2: Pressed / Sprinting
                 this.sprintBtnObj.bg.setFillStyle(0x22c55e, 0.90);
                 this.sprintBtnObj.bg.setStrokeStyle(3, 0x00ffff, 1.0);
@@ -1463,18 +1455,21 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
 
         if (!this.matchFinished) {
             // Match Time Countdown
+            if (this.ballController) {
+                this.teamStats[this.ballController.isLeftTeam ? 0 : 1].possessionMs += delta;
+            }
             this.matchTime += delta;
             if (this.matchTime >= this.matchDuration) {
                 this.matchTime = this.matchDuration;
             }
             const remaining = this.matchDuration - this.matchTime;
             
-            this._timerAccum = (this._timerAccum || 0) + delta;
-            if (this._timerAccum >= 500) {
-                this._timerAccum = 0;
-                const mins = Math.floor(remaining / 60000); 
-                const secs = Math.floor((remaining % 60000) / 1000);
-                this.timerText.setText(`${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`);
+            const seconds = Math.ceil(remaining / 1000);
+            if (seconds !== this._displayedSeconds) {
+                this._displayedSeconds = seconds;
+                const minutesText = String(Math.floor(seconds / 60)).padStart(2, '0');
+                const secondsText = String(seconds % 60).padStart(2, '0');
+                this.timerText.setText(`${minutesText}:${secondsText}`);
             }
 
             // End match when time hits 0 (guarded)
@@ -1689,7 +1684,7 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
         });
         this.cameras.main.zoomTo(0.8, 500, 'Sine.easeInOut');
         this._smoothedSpeedKmh = 0;
-        if (this.speedText) this.speedText.setText("SPD: 0 KM/H");
+        if (this.speedText) this.speedText.setText("0 KM/H");
         if (this.humanPlayer && this.humanPlayer.body) {
             this.humanPlayer.body.setVelocity(0, 0);
             this.humanPlayer.body.setAcceleration(0, 0);
@@ -1827,9 +1822,10 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
     }
 
     showPauseMenu() {
-        if (this.isPauseMenuOpen) return;
+        if (this.isPauseMenuOpen || this.matchState !== 'PLAYING') return;
         this.isPauseMenuOpen = true;
         this.isGamePaused = true;
+        this.resetMatchInput();
         
         // Pause physics
         this.physics.pause();
@@ -2088,6 +2084,7 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
         // GUARD: Prevent multiple calls
         if (this.matchFinished) return;
         this.matchFinished = true;
+        this.matchState = 'FINISHED';
         
         console.log("[GameScene] MATCH FINISHED TRIGGERED");
 
@@ -2113,13 +2110,21 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
         }
         
         this._smoothedSpeedKmh = 0;
-        if (this.speedText) this.speedText.setText("SPD: 0 KM/H");
+        if (this.speedText) this.speedText.setText("0 KM/H");
         
         // 4. Calculate result (once)
         const ratingVal = Number(this.calculatePlayerRating().toFixed(1));
         const staminaVal = Math.round(this.userPlayerStats.staminaUsed || 0);
         
+        const [userTeam, opponentTeam] = this.teamStats;
+        const possessionMs = userTeam.possessionMs + opponentTeam.possessionMs;
+        const userPossession = possessionMs ? Math.round(userTeam.possessionMs * 100 / possessionMs) : null;
+        const isHome = window.gameState.activeMatch?.userSide !== 'away';
+        const leftTeamStats = { ...userTeam, possession: userPossession };
+        const rightTeamStats = { ...opponentTeam, possession: userPossession === null ? null : 100 - userPossession };
         const matchStats = {
+            homeStats: isHome ? leftTeamStats : rightTeamStats,
+            awayStats: isHome ? rightTeamStats : leftTeamStats,
             scoreLeft: this.score.left,
             scoreRight: this.score.right,
             isWin: this.score.left > this.score.right,
@@ -2138,11 +2143,6 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
             }
         };
         
-        // 5. Save to career
-        if (window.gameState && window.gameState.career) {
-            window.gameState.career.goals = (window.gameState.career.goals || 0) + this.userPlayerStats.goals;
-        }
-
         // Telemetry Match End Tracking
         if (window.AnalyticsService) {
             const activeMatch = window.gameState.activeMatch;
@@ -2164,24 +2164,26 @@ POS: ${this.ballController ? this.ballController.name : 'NONE'}`;
             window.AnalyticsService.incrementMatchIndex();
         }
         
-        // 6. Safe scene transition with fallback
+        // Fade both the field and the HUD before showing the result.
         this.cameras.main.fadeOut(800);
         if (this.uiCamera) this.uiCamera.fadeOut(800); // Fade HUD so it doesn't freeze on screen
         
-        // Use setTimeout as a foolproof fallback in case Phaser's internal clock gets paused
-        let transitionStarted = false;
-        const transitionToNextScene = () => {
-            if (transitionStarted) return;
-            transitionStarted = true;
-            console.log("[GameScene] Starting PostMatchScene");
-            this.scene.start('PostMatchScene', matchStats);
-        };
-        
-        this.time.delayedCall(850, transitionToNextScene);
-        setTimeout(transitionToNextScene, 1000); // Guaranteed trigger
+        this.time.delayedCall(850, () => this.scene.start('PostMatchScene', matchStats));
     }
 
     shutdown() {
+        const ambience = window.audioManager?.currentAmbience;
+        if (ambience) {
+            ambience.destroy();
+            window.audioManager.currentAmbience = null;
+        }
+        this.players = [];
+        this.humanPlayer = null;
+        this.ball = null;
+        this.ballController = null;
+        this.lastBallController = null;
+        this.lastTouchPlayer = null;
+        this.secondLastTouchPlayer = null;
         // Track match abandon if match was left before completion
         if (!this.matchFinished && !this.abandonTracked && this.kickoffTimestamp > 0 && window.AnalyticsService) {
             this.abandonTracked = true;

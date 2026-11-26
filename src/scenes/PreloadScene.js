@@ -142,16 +142,12 @@ class PreloadScene extends Phaser.Scene {
         bn.generateTexture('ball_tennis', 36, 36);
         bf.generateTexture('ball_beach', 36, 36);
 
-        // Procedural generation is fast, so we don't need fake loading time.
-        // If we want a delay for effect, we can use a timer in create()
     }
 
     createLoadingBar() {
         const width = this.cameras.main.width;
-        const height = this.cameras.main.height;
-
-        // --- TOP LEFT: INITIALIZING SYSTEM ---
-        this.add.text(40, 30, "INITIALIZING SYSTEM", {
+        const isTurkish = window.gameState.settings.language === 'tr';
+        this.add.text(40, 30, isTurkish ? 'OYUN YÜKLENİYOR' : 'LOADING GAME', {
             font: '600 12px sans-serif',
             fill: '#c084fc', // Purple
             letterSpacing: 2
@@ -167,49 +163,11 @@ class PreloadScene extends Phaser.Scene {
             fill: '#ffffff'
         }).setOrigin(0, 0.5);
 
-        // --- TOP RIGHT: CONNECTING TO SERVERS ---
-        const connectText = this.add.text(width - 40, 30, "CONNECTING TO SERVERS   ", {
-            font: '600 12px sans-serif',
-            fill: '#94a3b8',
-            letterSpacing: 2
-        }).setOrigin(1, 0);
-
-        // Dots animation
-        let dotCount = 0;
-        const dotTimer = this.time.addEvent({
-            delay: 400,
-            loop: true,
-            callback: () => {
-                dotCount = (dotCount + 1) % 4;
-                connectText.setText("CONNECTING TO SERVERS" + ".".repeat(dotCount));
-            }
-        });
-
-        // --- BOTTOM LEFT: VERSION ---
-        this.add.text(40, height - 30, "VERSION 1.0.0", {
-            font: '400 10px sans-serif',
-            fill: '#475569',
-            letterSpacing: 2
-        }).setOrigin(0, 1);
-
-        // --- BOTTOM RIGHT: COPYRIGHT ---
-        this.add.text(width - 40, height - 30, "© 2024 FURIO FOOTBALL CLUB", {
-            font: '400 10px sans-serif',
-            fill: '#475569',
-            letterSpacing: 2
-        }).setOrigin(1, 1);
-
         this.load.on('progress', (value) => {
             progressBar.width = barWidth * value;
             percentText.setText(Math.floor(value * 100) + "%");
         });
 
-        this.load.on('complete', () => {
-            dotTimer.remove();
-            connectText.setText("CONNECTED");
-            percentText.setText("100%");
-            progressBar.width = barWidth;
-        });
     }
 
     create() {
@@ -219,28 +177,6 @@ class PreloadScene extends Phaser.Scene {
         gfx.fillCircle(8, 8, 8);
         gfx.generateTexture('particle', 16, 16);
 
-        // Simulate a fake loading time to let the user enjoy the premium cinematic loading screen
-        const fakeLoadTime = 3000;
-        
-        let progress = 0;
-        const progressTimer = this.time.addEvent({
-            delay: 30,
-            repeat: 100,
-            callback: () => {
-                progress += 0.01;
-                this.load.emit('progress', Math.min(progress, 1));
-            }
-        });
-
-        this.time.delayedCall(fakeLoadTime, () => {
-            this.load.emit('complete');
-            this.time.delayedCall(500, () => {
-                if (!window.gameState.player.username) {
-                    this.scene.start('OnboardingScene');
-                } else {
-                    this.scene.start('MenuScene');
-                }
-            });
-        });
+        this.scene.start(window.gameState.player.username ? 'MenuScene' : 'OnboardingScene');
     }
 }

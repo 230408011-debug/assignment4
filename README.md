@@ -1,7 +1,7 @@
 # Furio FC
 
-**Version:** 0.9.0 (Closed Beta)  
-**Build Date:** 2026-08-13  
+**Version:** 0.9.4 (Closed Beta)
+
 **Platforms:** Web (HTML5/Canvas), Android (Capacitor)  
 
 ## Project Structure
@@ -16,20 +16,29 @@
 3. Open `http://localhost:8080/` in your browser.
 
 ## How to Build (Android)
-1. Ensure dependencies are installed via `npm install`.
-2. Sync the web assets to the Android project using `npx cap sync`.
-3. Open the Android project in Android Studio using `npx cap open android`.
-4. Build the APK using Android Studio's standard Build process.
+1. Install the repository dependencies with `npm ci`.
+2. Build and sync the web assets with `npm run build` and `npx cap sync android`.
+3. With JDK 21 and Android SDK 36 installed, open `android/` in Android Studio or run `./gradlew assembleDebug` from that directory. On Windows, use `gradlew.bat assembleDebug`.
+4. Find the test APK at `android/app/build/outputs/apk/debug/app-debug.apk`.
+
+## Career Match Objectives
+
+The kit screen previews the optional objective and bonus for each fixture. Completed passes, ball recoveries, shots on target and goals rotate with the season schedule. The match HUD tracks progress. A completed objective adds 12 EZ and 20 XP alongside the normal match rewards.
+
+## Tests
+
+Run `npm test` for gameplay checks and career regressions covering save recovery, away results, and objective rewards.
 
 ## Controls
 **PC Controls:**
 - Arrow Keys or WASD to move.
-- `Z` / `Space` to Shoot.
-- `X` to Pass.
+- Hold `Z` or `Space` to charge a shot, then release to shoot. Without the ball, the same keys attempt a tackle.
+- `X` to pass.
+- `F` to tackle or dash, depending on possession.
 - `C` / `Shift` to Sprint.
 
 **Mobile Controls:**
-- On-screen DOM virtual joystick (left side).
+- Floating joystick on the left side of the pitch.
 - On-screen Pass/Shoot/Sprint action buttons (right side).
 
 ## Known Issues

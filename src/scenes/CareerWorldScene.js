@@ -797,6 +797,8 @@ class CareerWorldScene extends Phaser.Scene {
             duration: 90,
             userSide: isHome ? 'home' : 'away',
             isHome: isHome,
+            fixtureId: match.id,
+            objective: window.EconomyConfig.getMatchObjective(match, this.cw.currentSeason, window.gameState.settings.language),
             scheduleIndex: (this.season && this.season.fixtures) ? this.season.fixtures.indexOf(match) : 0,
             competition: compName,
             competitionShort: match.competitionShort || (activeLeagueObj ? activeLeagueObj.shortName : 'LIG'),

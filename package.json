@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "node -e \"const fs = require('fs'); fs.cpSync('index.html', 'www/index.html'); fs.cpSync('src', 'www/src', {recursive: true}); fs.cpSync('assets', 'www/assets', {recursive: true}); console.log('Web build complete.');\"",
-    "test": "node scratch/test_gameplay_fixes.js"
+    "test": "node scratch/test_gameplay_fixes.js && node tests/android-career-regression.js"
   },
   "keywords": [],
   "author": "",

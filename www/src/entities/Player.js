@@ -291,10 +291,9 @@ class Player extends Phaser.GameObjects.Container {
         }
 
         // Stamina system state logic
-        const sprintKeyPressed = this.isHuman && ((keys.SHIFT && keys.SHIFT.isDown) || (mobileKeys && (mobileKeys.through || mobileKeys.sprint)));
+        const sprintKeyPressed = this.isHuman && (keys.SHIFT.isDown || keys.C.isDown || mobileKeys.sprint);
         
-        // When human has possession, keys.SHIFT triggers a pass immediately, so we check through/sprint or SHIFT
-        const isSprintingInput = sprintKeyPressed && !(this.hasPossession && keys.SHIFT && keys.SHIFT.isDown);
+        const isSprintingInput = sprintKeyPressed;
         
         this.isSprinting = isSprintingInput && this.stamina > 0 && !this.isFatigued;
         
@@ -544,59 +543,71 @@ class Player extends Phaser.GameObjects.Container {
             if (this.body.velocity.lengthSq() < 100) this.body.setVelocity(0, 0);
         }
 
-        const isShooting = mobileKeys.shoot || (keys.SPACE && keys.SPACE.isDown);
+        const isShooting = mobileKeys.shoot || keys.SPACE.isDown || keys.Z.isDown;
         
         // Tackle attempt (if not in possession and shooting key pressed)
         if (isShooting && !this.hasPossession && this.tackleCooldown <= 0) {
             this.attemptTackle(ball);
         }
         
+        const maxCharge = 700;
+        const shotAngle = vx !== 0 || vy !== 0 || mobileKeys.joyForce > 0
+            ? this.lastInputAngle : this.rotation;
         if (isShooting && this.hasPossession) {
-            this.chargeTime += delta;
-            if (!this.chargeGlow) {
-                this.chargeGlow = this.scene.add.circle(this.x, this.y, 35, 0xffffff, 0.6).setDepth(190).setBlendMode('ADD');
-            }
-            this.chargeGlow.x = this.x; this.chargeGlow.y = this.y;
-            
-            const maxCharge = 700;
-            const chargeRatio = Math.min(this.chargeTime, maxCharge) / maxCharge; 
-            this.chargeGlow.scale = 1 + chargeRatio * 1.2;
-            
+            this.chargeTime = Math.min(this.chargeTime + delta, maxCharge);
+            this.drawShotCharge(this.chargeTime / maxCharge, shotAngle);
             this.body.setAcceleration(this.body.acceleration.x * 0.1, this.body.acceleration.y * 0.1);
-            
-        } else if (!isShooting && this.chargeTime > 0) {
-            const maxCharge = 700;
-            let chargeRatio = Math.min(this.chargeTime, maxCharge) / maxCharge;
-            let force = 600 + (chargeRatio * 750 * this.stats.shotPower); 
-            
-            // Use last input angle for shot direction if moving, else use visual rotation
-            let shotAngle = (vx !== 0 || vy !== 0) ? this.lastInputAngle : this.rotation;
-            
-            this.shootBall(ball, force, shotAngle);
-            this.chargeTime = 0;
-            if(this.chargeGlow) { this.chargeGlow.destroy(); this.chargeGlow = null; }
-            mobileKeys.shoot = false; 
+        } else if (this.chargeTime > 0) {
+            if (this.hasPossession) {
+                const force = 600 + (this.chargeTime / maxCharge) * 750 * this.stats.shotPower;
+                this.shootBall(ball, force, shotAngle);
+            }
+            this.clearShotCharge();
         }
 
         if (!isShooting && this.shootCooldown <= 0) {
-            const tacklePressed = (keys.F && keys.F.isDown) || mobileKeys.special || (!this.hasPossession && (keys.SPACE && keys.SPACE.isDown || mobileKeys.shoot));
+            const tacklePressed = keys.F.isDown;
             
             if (tacklePressed && !this.hasPossession) {
                 if (this.tackleCooldown <= 0 && this.stamina >= 15) this.tackle(ball);
-                mobileKeys.special = false;
-                mobileKeys.shoot = false;
-            } else if (mobileKeys.pass || (keys.SHIFT && keys.SHIFT.isDown)) {
+            } else if (mobileKeys.pass || Phaser.Input.Keyboard.JustDown(keys.X)) {
                 if (this.hasPossession) this.passBall(ball, vx, vy);
                 mobileKeys.pass = false;
             } else if (tacklePressed && this.dashCooldown <= 0 && this.hasPossession) {
                 if (this.stamina >= 15) this.dash(vx, vy);
-                mobileKeys.special = false;
             }
         }
         
         if (this.nameTagText) {
             this.nameTagText.setRotation(-this.rotation);
         }
+    }
+
+    drawShotCharge(progress, angle) {
+        if (!this.chargeGuide) this.chargeGuide = this.scene.add.graphics().setDepth(190);
+        const guide = this.chargeGuide;
+        guide.setPosition(this.x, this.y).clear();
+        guide.lineStyle(4, 0x1e293b, 0.9).strokeCircle(0, 0, 34);
+
+        const color = progress >= 1 ? 0xfacc15 : 0x67e8f9;
+        guide.lineStyle(4, color, 1);
+        guide.beginPath();
+        guide.arc(0, 0, 34, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+        guide.strokePath();
+
+        const tipX = Math.cos(angle) * 59;
+        const tipY = Math.sin(angle) * 59;
+        guide.fillStyle(color, 1);
+        guide.fillTriangle(tipX, tipY,
+            tipX - Math.cos(angle - 0.55) * 17, tipY - Math.sin(angle - 0.55) * 17,
+            tipX - Math.cos(angle + 0.55) * 17, tipY - Math.sin(angle + 0.55) * 17
+        );
+    }
+
+    clearShotCharge() {
+        this.chargeTime = 0;
+        this.chargeGuide?.destroy();
+        this.chargeGuide = null;
     }
 
     dash(vx, vy) {
@@ -1146,11 +1157,8 @@ AC:${this.lastDecision || 'NONE'}`);
 
     shootBall(ball, force, customAngle) {
         if (!ball || !ball.body) return;
-        if (window.audioManager) window.audioManager.playSFX('kick', 1.0);
-        if (this.isHuman && this.scene.userPlayerStats) {
-            this.scene.userPlayerStats.shots++;
-        }
-        
+
+
         const goalX = this.isLeftTeam ? 1950 : 50;
         let goalY = 600; 
         if (Math.random() > 0.5) goalY = 540; else goalY = 660; // Aim at corners slightly
@@ -1197,6 +1205,16 @@ AC:${this.lastDecision || 'NONE'}`);
         finalVx += this.body.velocity.x * 0.4;
         finalVy += this.body.velocity.y * 0.4;
 
+        const team = this.scene.teamStats[this.isLeftTeam ? 0 : 1];
+        const goalLine = this.isLeftTeam ? 1875 : 125;
+        const goalTravelTime = (goalLine - ball.x) / finalVx;
+        const projectedY = ball.y + finalVy * goalTravelTime;
+        const isOnTarget = goalTravelTime > 0 && projectedY > 470 && projectedY < 730;
+        team.shots++;
+        if (isOnTarget) team.shotsOnTarget++;
+        if (window.audioManager) window.audioManager.playSFX('kick', 1.0);
+        if (this.isHuman && this.scene.userPlayerStats) this.scene.userPlayerStats.shots++;
+
         ball.body.setVelocity(finalVx, finalVy);
         this.hasPossession = false;
         if (this.scene) {
@@ -1205,8 +1223,7 @@ AC:${this.lastDecision || 'NONE'}`);
             
             // Check shot on target vs off target for match rating
             if (this.isHuman) {
-                const isTowardsGoal = Math.abs(finalAngle - angleToGoal) < 0.40 && distToGoal <= 1250;
-                if (isTowardsGoal) {
+                if (isOnTarget) {
                     if (this.scene.userPlayerStats) this.scene.userPlayerStats.shotsOnTarget++;
                     if (this.scene.recordMatchRatingEvent) this.scene.recordMatchRatingEvent(0.3, "İsabetli Şut");
                 } else {
@@ -1304,7 +1321,8 @@ AC:${this.lastDecision || 'NONE'}`);
                 this.scene.ballController = this;
                 this.scene.ballState = 'CONTROLLED';
                 this.scene.lastBallController = this;
-                
+                this.scene.teamStats[this.isLeftTeam ? 0 : 1].tackles++;
+
                 if (this.scene.sparkEmitter) {
                     this.scene.sparkEmitter.emitParticleAt(ball.x, ball.y, 15);
                 }
@@ -1327,10 +1345,6 @@ AC:${this.lastDecision || 'NONE'}`);
 
     passBall(ball, vx, vy) {
         if (!ball || !ball.body) return;
-        if (this.isHuman && this.scene) {
-            if (this.scene.userPlayerStats) this.scene.userPlayerStats.passes++;
-            this.scene._pendingHumanPass = true;
-        }
         const teammates = this.scene.players.filter(p => p !== this && p.isLeftTeam === this.isLeftTeam && !p.isGoalkeeper);
         if (teammates.length === 0) return this.shootBall(ball, 750);
         
@@ -1415,6 +1429,11 @@ AC:${this.lastDecision || 'NONE'}`);
             finalVx += this.body.velocity.x * 0.3;
             finalVy += this.body.velocity.y * 0.3;
             
+            this.scene.teamStats[this.isLeftTeam ? 0 : 1].passes++;
+            if (this.isHuman && this.scene) {
+                if (this.scene.userPlayerStats) this.scene.userPlayerStats.passes++;
+                this.scene._pendingHumanPass = true;
+            }
             ball.body.setVelocity(finalVx, finalVy);
             if (window.audioManager) window.audioManager.playSFX('kick', 1.0);
             this.hasPossession = false;
@@ -1460,7 +1479,7 @@ AC:${this.lastDecision || 'NONE'}`);
         this.shootCooldown = 0;
         this.diveCooldown = 0;
         this.catchCooldown = 0;
-        this.chargeTime = 0;
+        this.clearShotCharge();
         this.aiState = 'IDLE';
         this.aiTarget = {x: this.x, y: this.y};
         this.lastDecisionTime = 0;
@@ -1468,11 +1487,7 @@ AC:${this.lastDecision || 'NONE'}`);
         this.stamina = this.maxStamina;
         this.isFatigued = false;
         this.isSprinting = false;
-        
-        if (this.chargeGlow) {
-            this.chargeGlow.destroy();
-            this.chargeGlow = null;
-        }
+
     }
 
     set playerName(val) {

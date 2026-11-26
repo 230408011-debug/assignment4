@@ -1257,7 +1257,7 @@ initSeason(clubId, contractOffer) {
             }
         }
 
-        if (!item) return;
+        if (!item || item.completed) return;
 
         item.homeScore = homeGoals;
         item.awayScore = awayGoals;

@@ -43,6 +43,19 @@ class KitSelectionScene extends Phaser.Scene {
         // 4. Center Match Details (VS)
         this.createCenterVS();
 
+        const objective = this.activeMatch.objective;
+        if (objective) {
+            const isTurkish = window.gameState.settings.language === 'tr';
+            const cx = this.width / 2;
+            this.add.rectangle(cx, 330, 264, 48, 0x0e162b).setStrokeStyle(1, 0x38bdf8, 0.6);
+            this.add.text(cx, 320, isTurkish ? 'MAÇ GÖREVİ' : 'MATCH OBJECTIVE', {
+                font: '700 11px sans-serif', color: '#7dd3fc'
+            }).setOrigin(0.5);
+            this.add.text(cx, 339, `${objective.target} · ${objective.label}    +${objective.ez} EZ  +${objective.xp} XP`, {
+                font: '700 12px sans-serif', color: '#e2e8f0'
+            }).setOrigin(0.5);
+        }
+
         // 5. Lower 4 Modules
         this.createLowerModules(homeClub, awayClub);
 

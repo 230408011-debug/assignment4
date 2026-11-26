@@ -4,6 +4,9 @@ class PostMatchScene extends Phaser.Scene {
     }
 
     init(data) {
+        this.leveledUp = false;
+        const activeMatch = window.gameState.activeMatch;
+        this.userIsHome = activeMatch?.userSide !== 'away';
         this.matchStats = data || { scoreLeft: 0, scoreRight: 0, isWin: false, isDraw: true };
     }
 
@@ -48,9 +51,10 @@ class PostMatchScene extends Phaser.Scene {
         
         const activeMatch = window.gameState && window.gameState.activeMatch;
         const cw = window.gameState && window.gameState.career;
-        const isHome = activeMatch ? activeMatch.userSide === 'home' : true;
-        const myScore = isHome ? this.matchStats.scoreLeft : this.matchStats.scoreRight;
-        const oppScore = isHome ? this.matchStats.scoreRight : this.matchStats.scoreLeft;
+        const myScore = this.matchStats.scoreLeft;
+        const oppScore = this.matchStats.scoreRight;
+        this.homeScore = this.userIsHome ? myScore : oppScore;
+        this.awayScore = this.userIsHome ? oppScore : myScore;
 
         this.isWin = myScore > oppScore;
         this.isDraw = myScore === oppScore;
@@ -90,6 +94,18 @@ class PostMatchScene extends Phaser.Scene {
             else { this.earnedCoins += 15; this.earnedXp += 15; }
         }
 
+        const objective = activeMatch?.objective;
+        this.objectiveResult = null;
+        if (objective) {
+            const progress = Math.min(objective.target, this.matchStats.userStats?.[objective.stat] ?? 0);
+            const completed = progress === objective.target;
+            this.objectiveResult = { ...objective, progress, completed };
+            if (completed) {
+                this.earnedCoins += objective.ez;
+                this.earnedXp += objective.xp;
+            }
+        }
+
         // Form change calculation (Deterministic based on result, zero random -5!)
         let ratingChange = 0;
         if (this.isWin) {
@@ -100,16 +116,22 @@ class PostMatchScene extends Phaser.Scene {
             ratingChange = -10 - ((oppScore - myScore) * 2);
         }
         
-        if (window.gameState && window.gameState.career) {
-            window.gameState.career.rating = Math.max(0, (window.gameState.career.rating || 100) + ratingChange);
-        }
         this.ratingChange = ratingChange;
 
-        // Apply EZ coins and Player XP
-        if (window.gameState && window.gameState.career) {
-            window.gameState.career.ez = (window.gameState.career.ez || 0) + this.earnedCoins;
+        const fixture = activeMatch?.fixtureId
+            ? cw?.fixtures?.find(match => match.id === activeMatch.fixtureId)
+            : cw?.fixtures?.[activeMatch?.scheduleIndex];
+        const applyRewards = !activeMatch || (
+            activeMatch.status !== 'completed' && fixture && !fixture.completed &&
+            fixture.home === activeMatch.homeTeamId && fixture.away === activeMatch.awayTeamId
+        );
+
+        if (applyRewards && cw) {
+            cw.rating = Math.max(0, (cw.rating ?? 100) + ratingChange);
         }
-        if (window.gameState && window.gameState.player) {
+        // Apply EZ coins and Player XP
+        if (applyRewards && cw) cw.ez = (cw.ez || 0) + this.earnedCoins;
+        if (applyRewards && window.gameState.player) {
             window.gameState.player.xp = (window.gameState.player.xp || 0) + this.earnedXp;
             
             // Level up check
@@ -133,23 +155,24 @@ class PostMatchScene extends Phaser.Scene {
         };
 
         // Send actual result to CareerManager
-        if (cw && cw.currentSeason && activeMatch) {
+        if (applyRewards && activeMatch && fixture) {
             let userAssists = this.matchStats.userStats ? (this.matchStats.userStats.assists || 0) : 0;
             let userRating = this.matchStats.userStats ? (this.matchStats.userStats.rating || 7.0) : 7.0;
             let isMotm = this.matchStats.userStats ? !!this.matchStats.userStats.isMotm : this.isWin;
             
             if (window.CareerManager) {
-                window.CareerManager.processMatchResult(
-                    this.matchStats.scoreLeft, 
-                    this.matchStats.scoreRight, 
-                    { goals: userGoals, assists: userAssists, rating: userRating, isMotm: isMotm }, 
-                    activeMatch.scheduleIndex
-                );
+                window.CareerManager.processMatchResult(fixture, this.homeScore, this.awayScore, {
+                    ...this.matchStats.userStats,
+                    goals: userGoals,
+                    assists: userAssists,
+                    rating: userRating,
+                    isMotm
+                }, this.userIsHome);
             }
             activeMatch.status = 'completed';
         }
 
-        if (window.SaveManager) window.SaveManager.save();
+        if (applyRewards && window.SaveManager) window.SaveManager.save();
     }
 
     createBackground() {
@@ -183,7 +206,7 @@ class PostMatchScene extends Phaser.Scene {
 
         // Header Names & Score
         this.add.text(cx - 110, 42, homeName, { font: '900 26px sans-serif', fill: '#ffffff' }).setOrigin(1, 0.5);
-        this.add.text(cx, 42, `${this.matchStats.scoreLeft} - ${this.matchStats.scoreRight}`, { font: '900 36px sans-serif', fill: resHex }).setOrigin(0.5);
+        this.add.text(cx, 42, `${this.homeScore} - ${this.awayScore}`, { font: '900 36px sans-serif', fill: resHex }).setOrigin(0.5);
         this.add.text(cx + 110, 42, awayName, { font: '900 26px sans-serif', fill: '#ffffff' }).setOrigin(0, 0.5);
 
         // Subtitle
@@ -198,31 +221,15 @@ class PostMatchScene extends Phaser.Scene {
 
         this.add.text(x, y - h/2 + 22, "MAÇ İSTATİSTİKLERİ", { font: '800 14px sans-serif', fill: '#38bdf8' }).setOrigin(0.5);
 
-        const activeMatch = window.gameState && window.gameState.activeMatch;
-        const isHome = activeMatch ? activeMatch.userSide === 'home' : true;
-
-        // Retrieve actual stats passed from GameScene without random generation
-        let homeS = this.matchStats.homeStats || {};
-        let awayS = this.matchStats.awayStats || {};
-        let userS = this.matchStats.userStats || {};
-
-        let homeGoals = this.matchStats.scoreLeft;
-        let awayGoals = this.matchStats.scoreRight;
-
-        let homeShots = homeS.shots !== undefined ? homeS.shots : (isHome ? (userS.shots || homeGoals) : homeGoals);
-        let awayShots = awayS.shots !== undefined ? awayS.shots : (!isHome ? (userS.shots || awayGoals) : awayGoals);
-
-        let homeSot = homeS.shotsOnTarget !== undefined ? homeS.shotsOnTarget : Math.min(homeShots, (isHome ? (userS.shotsOnTarget || homeGoals) : homeGoals));
-        let awaySot = awayS.shotsOnTarget !== undefined ? awayS.shotsOnTarget : Math.min(awayShots, (!isHome ? (userS.shotsOnTarget || awayGoals) : awayGoals));
-
-        let homePasses = homeS.passes !== undefined ? homeS.passes : (isHome ? (userS.passes || 12) : 10);
-        let awayPasses = awayS.passes !== undefined ? awayS.passes : (!isHome ? (userS.passes || 12) : 10);
-
-        let homeTackles = homeS.tackles !== undefined ? homeS.tackles : (isHome ? (userS.tackles || 4) : 4);
-        let awayTackles = awayS.tackles !== undefined ? awayS.tackles : (!isHome ? (userS.tackles || 4) : 4);
-
-        let homePoss = homeS.possession !== undefined ? homeS.possession : 50;
-        let awayPoss = awayS.possession !== undefined ? awayS.possession : (100 - homePoss);
+        const home = this.matchStats.homeStats || {};
+        const away = this.matchStats.awayStats || {};
+        const rows = [
+            ["Topla Oynama (%)", "possession"],
+            ["Şutlar", "shots"],
+            ["İsabetli Şut", "shotsOnTarget"],
+            ["Paslar", "passes"],
+            ["Müdahaleler", "tackles"]
+        ];
 
         let startY = y - h/2 + 65;
         const spacing = 45;
@@ -232,17 +239,11 @@ class PostMatchScene extends Phaser.Scene {
 
         const drawRow = (label, v1, v2, yPos) => {
             this.add.text(x, yPos, label, { font: '600 13px sans-serif', fill: '#ffffff' }).setOrigin(0.5);
-            this.add.text(x - w/2 + 30, yPos, v1.toString(), { font: '800 15px sans-serif', fill: v1 >= v2 ? '#38bdf8' : '#94a3b8' }).setOrigin(0.5);
-            this.add.text(x + w/2 - 30, yPos, v2.toString(), { font: '800 15px sans-serif', fill: v2 >= v1 ? '#ef4444' : '#94a3b8' }).setOrigin(0.5);
+            this.add.text(x - w/2 + 30, yPos, String(v1 ?? '—'), { font: '800 15px sans-serif', fill: v1 != null && v2 != null && v1 >= v2 ? '#38bdf8' : '#94a3b8' }).setOrigin(0.5);
+            this.add.text(x + w/2 - 30, yPos, String(v2 ?? '—'), { font: '800 15px sans-serif', fill: v1 != null && v2 != null && v2 >= v1 ? '#ef4444' : '#94a3b8' }).setOrigin(0.5);
         };
 
-        drawRow("Topla Oynama (%)", homePoss, awayPoss, startY);
-        drawRow("Şutlar", homeShots, awayShots, startY + spacing);
-        drawRow("İsabetli Şut", homeSot, awaySot, startY + spacing*2);
-        drawRow("Paslar", homePasses, awayPasses, startY + spacing*3);
-        drawRow("Müdahaleler", homeTackles, awayTackles, startY + spacing*4);
-        
-        this.actualMatchStats = { homePoss, awayPoss, homeShots, awayShots, homePasses, awayPasses, userS };
+        rows.forEach(([label, key], index) => drawRow(label, home[key], away[key], startY + spacing * index));
     }
 
     createMotmPanel(x, y) {
@@ -312,6 +313,13 @@ class PostMatchScene extends Phaser.Scene {
         else if (this.ratingChange < 0) { formIcon = "▼"; formColor = "#ef4444"; formVal = `${this.ratingChange}`; }
 
         this.add.text(x + 70, y + 15, `${formIcon} ${formVal}`, { font: '900 20px sans-serif', fill: formColor }).setOrigin(0.5);
+        if (this.objectiveResult) {
+            const { label, progress, target, completed, ez, xp } = this.objectiveResult;
+            const summary = completed ? `✓ ${label}  +${ez} EZ  +${xp} XP` : `${label}  ${progress}/${target}`;
+            this.add.text(x, y + 49, summary, {
+                font: '700 13px sans-serif', color: completed ? '#86efac' : '#94a3b8'
+            }).setOrigin(0.5);
+        }
     }
 
     createSummaryPanel(x, y) {
@@ -320,10 +328,9 @@ class PostMatchScene extends Phaser.Scene {
 
         this.add.text(x - w/2 + 20, y - h/2 + 18, "MAÇ ÖZETİ", { font: '800 14px sans-serif', fill: '#ffffff' });
 
-        const activeMatch = window.gameState && window.gameState.activeMatch;
-        const isHome = activeMatch ? activeMatch.userSide === 'home' : true;
-        let oppScore = isHome ? this.matchStats.scoreRight : this.matchStats.scoreLeft;
-        let myScore = isHome ? this.matchStats.scoreLeft : this.matchStats.scoreRight;
+        const oppScore = this.matchStats.scoreRight;
+        const myScore = this.matchStats.scoreLeft;
+        const userTeamStats = this.userIsHome ? this.matchStats.homeStats : this.matchStats.awayStats;
 
         let uGoals = this.matchStats.userStats ? (this.matchStats.userStats.goals || 0) : 0;
         let uAssists = this.matchStats.userStats ? (this.matchStats.userStats.assists || 0) : 0;
@@ -350,12 +357,12 @@ class PostMatchScene extends Phaser.Scene {
 
         // Line 3: Player performance highlight
         if (uGoals >= 3) {
-            summaryLines.push(`İnanılmaz bir Hat-Trick yaprak galibiyetin mimarı oldun!`);
+            summaryLines.push(`İnanılmaz bir hat-trick ile takımına üç gol kazandırdın!`);
         } else if (uGoals > 0) {
             summaryLines.push(`Attığın ${uGoals} gol ile takıma doğrudan skor katkısı sağladın.`);
         } else if (uAssists > 0) {
             summaryLines.push(`Yaptığın ${uAssists} asist ile skora önemli katkıda bulundun.`);
-        } else if (this.actualMatchStats && this.actualMatchStats.homePoss >= 55) {
+        } else if (userTeamStats?.possession >= 55) {
             summaryLines.push(`Yüksek topla oynama oranı ile saha organizasyonunu yönettin.`);
         } else {
             summaryLines.push(`Takım disiplini içerisinde görevini başarıyla tamamladın.`);

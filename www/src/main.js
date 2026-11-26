@@ -199,30 +199,34 @@ window.addEventListener('orientationchange', () => {
     setTimeout(handleResize, 300);
 });
 
-// --- MOBILE (CAPACITOR) INTEGRATION ---
-document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-        // App went to background, pause the game
-        if (window.phaserGame && window.phaserGame.scene) {
-            const scenes = window.phaserGame.scene.getScenes(true);
-            scenes.forEach(s => {
-                if (typeof s.scene.pause === 'function') s.scene.pause();
-            });
-            if (window.audioManager) window.audioManager.mute();
-        }
-    } else {
-        // App returned to foreground, resume
-        if (window.phaserGame && window.phaserGame.scene) {
-            const scenes = window.phaserGame.scene.getScenes(false); // get paused scenes
-            scenes.forEach(s => {
-                if (typeof s.scene.resume === 'function') s.scene.resume();
-            });
-            if (window.gameState && window.gameState.settings && window.gameState.settings.musicOn) {
-                if (window.audioManager) window.audioManager.unmute();
-            }
-        }
+// Web and native lifecycle events can overlap. Resume once both are active.
+let nativeAppActive = true;
+let backgroundScenes = [];
+let previousMute;
+function updateAppLifecycle() {
+    const game = window.phaserGame;
+    if (document.hidden || !nativeAppActive) {
+        if (previousMute !== undefined) return;
+        backgroundScenes = game.scene.getScenes(true);
+        backgroundScenes.forEach(scene => {
+            scene.resetMatchInput?.();
+            scene.sys.pause();
+        });
+        previousMute = game.sound.mute;
+        game.sound.mute = true;
+        return;
     }
-});
+
+    if (previousMute !== undefined) {
+        backgroundScenes.forEach(scene => {
+            if (scene.scene.isPaused()) scene.sys.resume();
+        });
+        game.sound.mute = previousMute;
+        previousMute = undefined;
+        backgroundScenes = [];
+    }
+}
+document.addEventListener('visibilitychange', updateAppLifecycle);
 
 // --- SHARED NAVIGATION BACK FUNCTION ---
 window.navigateBack = function() {
@@ -360,29 +364,9 @@ if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App
         });
     });
     
-    // Lifecycle Pause/Resume
     App.addListener('appStateChange', ({ isActive }) => {
-        if (!window.game || !window.game.scene) return;
-        
-        if (!isActive) {
-            // App went to background
-            window.game.scene.scenes.forEach(scene => {
-                if (scene.sys.isActive()) {
-                    scene.sys.pause();
-                    scene._wasPausedByLifecycle = true;
-                }
-            });
-            if (window.audioManager) window.audioManager.pauseAll();
-        } else {
-            // App returned to foreground
-            window.game.scene.scenes.forEach(scene => {
-                if (scene._wasPausedByLifecycle) {
-                    scene.sys.resume();
-                    scene._wasPausedByLifecycle = false;
-                }
-            });
-            if (window.audioManager) window.audioManager.resumeAll();
-        }
+        nativeAppActive = isActive;
+        updateAppLifecycle();
     });
 } else {
     // Browser popstate fallback
